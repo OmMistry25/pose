@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { runOnJS, useAnimatedReaction } from 'react-native-reanimated';
 
 import { matchScoreSV } from '../state/frameState';
+import { fonts } from '../theme/tokens';
 
 function colorForScore(score: number): string {
   if (score >= 85) return '#22c55e';
@@ -60,15 +61,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.85)',
   },
   score: {
+    fontFamily: fonts.sansBold,
     color: '#fff',
-    fontSize: 28,
-    fontWeight: '800',
-    lineHeight: 32,
+    fontSize: 32,
+    lineHeight: 36,
   },
   label: {
+    fontFamily: fonts.sansBold,
     color: 'rgba(255,255,255,0.9)',
     fontSize: 11,
-    fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },

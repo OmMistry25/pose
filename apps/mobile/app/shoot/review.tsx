@@ -1,9 +1,11 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -15,13 +17,15 @@ import {
   syncCaptureToCloud,
   type CloudCaptureResult,
 } from '../../src/capture/saveCapture';
+import { capturesQueryKey } from '../../src/supabase/queries';
 
 /**
- * After a shot: show your photo next to the reference.
- * Save = keep it (Photos + cloud). Retake = throw it away.
+ * After a shot: your photo above the reference.
+ * Save = keep it (Photos + cloud) → library. Retake = back to camera.
  */
 export default function CaptureReviewScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const params = useLocalSearchParams<{
     uri: string;
     score: string;
@@ -45,16 +49,20 @@ export default function CaptureReviewScreen() {
     setError(null);
     let cloud: CloudCaptureResult | null = null;
     try {
-      // 1) Save into the phone's Photos app
       await saveCaptureToLibrary(uri);
-      // 2) Optional cloud backup (default on)
       cloud = await syncCaptureToCloud({
         uri,
         referenceId,
         matchScore: score,
       });
       console.log('capture saved', { score, cloud });
-      router.back();
+      await queryClient.invalidateQueries({ queryKey: capturesQueryKey });
+      // Exit shoot/review so the camera can't auto-capture again.
+      if (typeof router.dismissTo === 'function') {
+        router.dismissTo('/(tabs)/library');
+      } else {
+        router.replace('/(tabs)/library');
+      }
     } catch (e) {
       if (cloud) {
         try {
@@ -81,24 +89,21 @@ export default function CaptureReviewScreen() {
       <Text style={styles.title}>Nice shot</Text>
       <Text style={styles.score}>Match {Math.round(score)}</Text>
 
-      <View style={styles.row}>
-        <View style={styles.half}>
-          <Text style={styles.label}>Yours</Text>
-          {uri ? (
-            <Image source={{ uri }} style={styles.image} resizeMode="cover" />
-          ) : (
-            <View style={[styles.image, styles.placeholder]} />
-          )}
-        </View>
-        <View style={styles.half}>
-          <Text style={styles.label}>Reference</Text>
-          {referenceUrl ? (
-            <Image source={{ uri: referenceUrl }} style={styles.image} resizeMode="cover" />
-          ) : (
-            <View style={[styles.image, styles.placeholder]} />
-          )}
-        </View>
-      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <Text style={styles.label}>Yours</Text>
+        {uri ? (
+          <Image source={{ uri }} style={styles.image} resizeMode="cover" />
+        ) : (
+          <View style={[styles.image, styles.placeholder]} />
+        )}
+
+        <Text style={[styles.label, styles.labelSpaced]}>Reference</Text>
+        {referenceUrl ? (
+          <Image source={{ uri: referenceUrl }} style={styles.image} resizeMode="cover" />
+        ) : (
+          <View style={[styles.image, styles.placeholder]} />
+        )}
+      </ScrollView>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -143,15 +148,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     fontSize: 16,
     marginTop: 4,
-    marginBottom: 24,
+    marginBottom: 16,
   },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
+  scroll: {
     flex: 1,
   },
-  half: {
-    flex: 1,
+  scrollContent: {
+    paddingBottom: 12,
+    gap: 0,
   },
   label: {
     color: 'rgba(255,255,255,0.7)',
@@ -161,8 +165,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: 8,
   },
+  labelSpaced: {
+    marginTop: 16,
+  },
   image: {
-    flex: 1,
+    width: '100%',
+    aspectRatio: 3 / 4,
     borderRadius: 12,
     backgroundColor: '#1a1a1a',
   },
@@ -172,13 +180,13 @@ const styles = StyleSheet.create({
   },
   error: {
     color: '#f87171',
-    marginTop: 16,
+    marginTop: 12,
     textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 24,
+    marginTop: 16,
   },
   button: {
     flex: 1,

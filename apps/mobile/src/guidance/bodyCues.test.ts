@@ -39,4 +39,15 @@ describe('buildBodyCues', () => {
     expect(buildBodyCues(null, basePose())).toEqual([]);
     expect(buildBodyCues(basePose(), [])).toEqual([]);
   });
+
+  it('keeps anatomical left/right on the back camera', () => {
+    const target = basePose();
+    setLeftArm(target, [0.4, 0.55], [0.4, 0.7]);
+
+    const live = basePose();
+    setLeftArm(live, [0.4, 0.55], [0.55, 0.55]);
+
+    const cues = buildBodyCues(target, live, { facingFront: false });
+    expect(cues[0]).toMatchObject({ id: 'left_elbow', text: 'Straighten your left arm' });
+  });
 });

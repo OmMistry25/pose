@@ -3,18 +3,19 @@ import { describe, expect, it } from 'vitest';
 import { combineMatchScore, framingMatchScore } from './matchScore';
 
 describe('matchScore', () => {
-  it('pulls a high pose score down when the person is far off to the side', () => {
+  it('only lightly pulls a high pose score when the person is off to the side', () => {
     const framing = framingMatchScore({
       dx: 0.25,
       dy: 0,
       dScale: 1,
-      iou: 0, // absolute overlap can be 0 — must not zero the badge
+      iou: 0,
     });
     expect(framing).toBeLessThan(50);
     expect(framing).toBeGreaterThan(0);
     const combined = combineMatchScore(95, framing);
-    expect(combined).toBeLessThan(70);
-    expect(combined).toBeGreaterThan(20);
+    // Pose-dominant (85/15): should stay high even with mediocre framing.
+    expect(combined).toBeGreaterThan(80);
+    expect(combined).toBeLessThan(95);
   });
 
   it('keeps a high score when framing is roughly centered', () => {
@@ -27,5 +28,17 @@ describe('matchScore', () => {
     expect(framing).toBeGreaterThan(85);
     const combined = combineMatchScore(92, framing);
     expect(combined).toBeGreaterThan(85);
+  });
+
+  it('stays high when the person is a bit farther (smaller scale)', () => {
+    const framing = framingMatchScore({
+      dx: 0.02,
+      dy: 0.02,
+      dScale: 0.55,
+      iou: 0,
+    });
+    expect(framing).toBeGreaterThan(40);
+    const combined = combineMatchScore(90, framing);
+    expect(combined).toBeGreaterThan(75);
   });
 });

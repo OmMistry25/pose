@@ -13,39 +13,35 @@ type Action = 'bend' | 'straighten' | 'raise' | 'lower';
 type JointSpec = {
   part: 'arm' | 'leg';
   side: 'left' | 'right';
-  /** Action to suggest when the target angle is larger than the live angle. */
   targetLarger: Action;
-  /** Action to suggest when the target angle is smaller than the live angle. */
   targetSmaller: Action;
+  /** Arms matter more than hips for matching aesthetic poses. */
+  weight: number;
 };
 
-// Joint angle grows as the joint opens (straightens) or the limb lifts away
-// from the torso, so each joint maps to an intuitive body instruction.
 const JOINT_SPECS: Record<JointName, JointSpec> = {
-  left_elbow: { part: 'arm', side: 'left', targetLarger: 'straighten', targetSmaller: 'bend' },
-  right_elbow: { part: 'arm', side: 'right', targetLarger: 'straighten', targetSmaller: 'bend' },
-  left_knee: { part: 'leg', side: 'left', targetLarger: 'straighten', targetSmaller: 'bend' },
-  right_knee: { part: 'leg', side: 'right', targetLarger: 'straighten', targetSmaller: 'bend' },
-  left_shoulder: { part: 'arm', side: 'left', targetLarger: 'raise', targetSmaller: 'lower' },
-  right_shoulder: { part: 'arm', side: 'right', targetLarger: 'raise', targetSmaller: 'lower' },
-  left_hip: { part: 'leg', side: 'left', targetLarger: 'lower', targetSmaller: 'raise' },
-  right_hip: { part: 'leg', side: 'right', targetLarger: 'lower', targetSmaller: 'raise' },
+  left_elbow: { part: 'arm', side: 'left', targetLarger: 'straighten', targetSmaller: 'bend', weight: 1.15 },
+  right_elbow: { part: 'arm', side: 'right', targetLarger: 'straighten', targetSmaller: 'bend', weight: 1.15 },
+  left_knee: { part: 'leg', side: 'left', targetLarger: 'straighten', targetSmaller: 'bend', weight: 1.0 },
+  right_knee: { part: 'leg', side: 'right', targetLarger: 'straighten', targetSmaller: 'bend', weight: 1.0 },
+  left_shoulder: { part: 'arm', side: 'left', targetLarger: 'raise', targetSmaller: 'lower', weight: 1.2 },
+  right_shoulder: { part: 'arm', side: 'right', targetLarger: 'raise', targetSmaller: 'lower', weight: 1.2 },
+  left_hip: { part: 'leg', side: 'left', targetLarger: 'lower', targetSmaller: 'raise', weight: 0.85 },
+  right_hip: { part: 'leg', side: 'right', targetLarger: 'lower', targetSmaller: 'raise', weight: 0.85 },
 };
 
-// Posing does not have to be perfect — only cue when clearly off.
-const MIN_JOINT_DEG = 25;
-const MIN_HEAD_DEG = 18;
-const JOINT_FULL_SCALE_DEG = 60;
-const HEAD_FULL_SCALE_DEG = 30;
-/** Head is noisier than limbs; keep it from drowning out a real arm/leg fix. */
-const HEAD_SEVERITY_SCALE = 0.55;
-const MIN_SHOW_SEVERITY = 0.4;
+const MIN_JOINT_DEG = 22;
+const MIN_HEAD_DEG = 16;
+const JOINT_FULL_SCALE_DEG = 55;
+const HEAD_FULL_SCALE_DEG = 28;
+const HEAD_SEVERITY_SCALE = 0.5;
+const MIN_SHOW_SEVERITY = 0.38;
+const MIN_JOINT_VISIBILITY = 0.45;
 
 function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
-/** Wrap a degree difference into [-180, 180] so ear-line readings don't jump. */
 function wrapDegrees(deg: number): number {
   let d = deg;
   while (d > 180) d -= 360;
@@ -53,14 +49,34 @@ function wrapDegrees(deg: number): number {
   return d;
 }
 
+/** Landmark indices used to check a joint is actually visible. */
+const JOINT_VISIBILITY_IDX: Record<JointName, [number, number, number]> = {
+  left_elbow: [11, 13, 15],
+  right_elbow: [12, 14, 16],
+  left_shoulder: [11, 13, 23],
+  right_shoulder: [12, 14, 24],
+  left_hip: [23, 25, 11],
+  right_hip: [24, 26, 12],
+  left_knee: [23, 25, 27],
+  right_knee: [24, 26, 28],
+};
+
+function jointVisible(landmarks: PoseLandmarks, joint: JointName): boolean {
+  const idxs = JOINT_VISIBILITY_IDX[joint];
+  return idxs.every((i) => (landmarks[i]?.visibility ?? 0) >= MIN_JOINT_VISIBILITY);
+}
+
 type BuildOptions = {
-  /** True when the preview is horizontally mirrored (selfie view). */
+  /** True when the preview is horizontally mirrored (selfie view) — affects head tilt wording. */
   mirrored?: boolean;
+  /** Kept for callers; L/R cue words are always anatomical (no back-cam flip). */
+  facingFront?: boolean;
 };
 
 /**
  * Directional corrections for arms, legs, and head tilt, sorted worst-first.
- * Left/right always refer to the person's own body, which is correct on either camera.
+ * Left/right words are always anatomical (poser’s left = “left”), for both
+ * front (selfie) and back (photographer) cameras.
  */
 export function buildBodyCues(
   target: PoseLandmarks | null,
@@ -74,6 +90,7 @@ export function buildBodyCues(
   const cues: BodyCue[] = [];
 
   for (const joint of Object.keys(JOINT_SPECS) as JointName[]) {
+    if (!jointVisible(live, joint) || !jointVisible(target, joint)) continue;
     const diff = targetAngles[joint] - liveAngles[joint];
     if (Math.abs(diff) < MIN_JOINT_DEG) continue;
     const spec = JOINT_SPECS[joint];
@@ -81,7 +98,7 @@ export function buildBodyCues(
     cues.push({
       id: joint,
       text: `${capitalize(action)} your ${spec.side} ${spec.part}`,
-      severity: Math.abs(diff) / JOINT_FULL_SCALE_DEG,
+      severity: (Math.abs(diff) / JOINT_FULL_SCALE_DEG) * spec.weight,
     });
   }
 
@@ -90,7 +107,6 @@ export function buildBodyCues(
   if (targetRoll != null && liveRoll != null) {
     const diff = wrapDegrees(targetRoll - liveRoll);
     if (Math.abs(diff) >= MIN_HEAD_DEG) {
-      // Sign convention for mirrored selfie; flip if tilt reads backwards on device.
       const tiltRight = options.mirrored ? diff < 0 : diff > 0;
       cues.push({
         id: 'head',

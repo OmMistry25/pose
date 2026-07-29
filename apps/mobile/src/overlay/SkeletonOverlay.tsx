@@ -14,8 +14,10 @@ type SkeletonOverlayProps = {
   facingFront: SharedValue<boolean>;
 };
 
-const LIVE_STROKE = 'rgba(255, 255, 255, 0.95)';
-const LIVE_GLOW = 'rgba(255, 255, 255, 0.35)';
+/** Just Dance–style shadow dancer: soft dark fill, thick rounded limbs. */
+const SILHOUETTE = 'rgba(12, 18, 42, 0.72)';
+const SILHOUETTE_EDGE = 'rgba(90, 140, 255, 0.35)';
+const GLOW = 'rgba(120, 170, 255, 0.22)';
 const MIN_VISIBILITY = 0.3;
 
 /**
@@ -75,6 +77,11 @@ function buildBonePath(
   return path;
 }
 
+function limbStroke(viewHeight: number) {
+  'worklet';
+  return Math.max(16, Math.min(28, viewHeight * 0.028));
+}
+
 export function SkeletonOverlay({
   liveKeypoints,
   frameMeta,
@@ -94,6 +101,10 @@ export function SkeletonOverlay({
     return buildBonePath(landmarks, meta, size.width, size.height, facingFront.value);
   }, [size.width, size.height]);
 
+  const strokeW = useDerivedValue(() => limbStroke(size.height), [size.height]);
+  const glowW = useDerivedValue(() => strokeW.value + 10, [strokeW]);
+  const edgeW = useDerivedValue(() => strokeW.value + 4, [strokeW]);
+
   const jointPositions = useDerivedValue(() => {
     const landmarks = liveKeypoints.value;
     const meta = frameMeta.value;
@@ -106,6 +117,9 @@ export function SkeletonOverlay({
     }
     return joints;
   }, [size.width, size.height]);
+
+  const jointR = useDerivedValue(() => Math.max(9, limbStroke(size.height) * 0.45), [size.height]);
+  const jointGlowR = useDerivedValue(() => jointR.value + 5, [jointR]);
 
   const headCx = useDerivedValue(() => {
     const landmarks = liveKeypoints.value;
@@ -137,12 +151,12 @@ export function SkeletonOverlay({
     if (!landmarks || !meta || size.width === 0) return 0;
     const ls = pointOnView(landmarks, 11, meta, size.width, size.height, facingFront.value);
     const rs = pointOnView(landmarks, 12, meta, size.width, size.height, facingFront.value);
-    if (!ls || !rs) return 18;
+    if (!ls || !rs) return 22;
     const shoulderW = Math.hypot(rs.x - ls.x, rs.y - ls.y);
-    return Math.max(14, shoulderW * 0.28);
+    return Math.max(18, shoulderW * 0.32);
   }, [size.width, size.height]);
 
-  const headGlowR = useDerivedValue(() => (headR.value > 0 ? headR.value + 5 : 0), []);
+  const headGlowR = useDerivedValue(() => (headR.value > 0 ? headR.value + 8 : 0), []);
 
   return (
     <View style={StyleSheet.absoluteFill} onLayout={onLayout} pointerEvents="none">
@@ -150,24 +164,32 @@ export function SkeletonOverlay({
         <Canvas style={StyleSheet.absoluteFill}>
           <Path
             path={liveBones}
-            color={LIVE_GLOW}
+            color={GLOW}
             style="stroke"
-            strokeWidth={12}
+            strokeWidth={glowW}
             strokeJoin="round"
             strokeCap="round"
           />
           <Path
             path={liveBones}
-            color={LIVE_STROKE}
+            color={SILHOUETTE_EDGE}
             style="stroke"
-            strokeWidth={3.5}
+            strokeWidth={edgeW}
             strokeJoin="round"
             strokeCap="round"
           />
-          <Circle cx={headCx} cy={headCy} r={headGlowR} color={LIVE_GLOW} />
-          <Circle cx={headCx} cy={headCy} r={headR} color={LIVE_STROKE} style="stroke" strokeWidth={3} />
+          <Path
+            path={liveBones}
+            color={SILHOUETTE}
+            style="stroke"
+            strokeWidth={strokeW}
+            strokeJoin="round"
+            strokeCap="round"
+          />
+          <Circle cx={headCx} cy={headCy} r={headGlowR} color={GLOW} />
+          <Circle cx={headCx} cy={headCy} r={headR} color={SILHOUETTE} />
           {Array.from({ length: DRAW_JOINTS.length }).map((_, i) => (
-            <LiveJoint key={i} joints={jointPositions} index={i} />
+            <LiveJoint key={i} joints={jointPositions} index={i} r={jointR} glowR={jointGlowR} />
           ))}
         </Canvas>
       ) : null}
@@ -178,17 +200,21 @@ export function SkeletonOverlay({
 function LiveJoint({
   joints,
   index,
+  r,
+  glowR,
 }: {
   joints: SharedValue<{ x: number; y: number }[]>;
   index: number;
+  r: SharedValue<number>;
+  glowR: SharedValue<number>;
 }) {
   const cx = useDerivedValue(() => joints.value[index]?.x ?? -20, [index]);
   const cy = useDerivedValue(() => joints.value[index]?.y ?? -20, [index]);
 
   return (
     <>
-      <Circle cx={cx} cy={cy} r={6} color={LIVE_GLOW} />
-      <Circle cx={cx} cy={cy} r={3.5} color={LIVE_STROKE} />
+      <Circle cx={cx} cy={cy} r={glowR} color={GLOW} />
+      <Circle cx={cx} cy={cy} r={r} color={SILHOUETTE} />
     </>
   );
 }
